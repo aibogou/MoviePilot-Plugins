@@ -14,16 +14,33 @@ class P115Offline(_PluginBase):
     plugin_name = "115离线助手"
     plugin_desc = "支持 RSS 订阅自动离线到 115，并自动同步下载状态。"
     plugin_icon = "download"
-    plugin_version = "1.0.3"
+    plugin_version = "1.0.4"
     plugin_author = "Gemini"
+
+    # 私有属性
+    _enabled = False
+    _cookie = None
+    _notify = False
+    _onlyonce = False
+    _cron = None
 
     # 内部变量
     _client = None
 
     def init_plugin(self, config: dict):
-        """插件初始化"""
-        # 启动定时任务
-        self.update_scheduler()
+        # 停止现有任务
+        self.stop_service()
+
+        logger.info("============= P115Offline 初始化 =============")
+        try:
+            if config:
+                self._enabled = config.get("enabled")
+                self._cookie = config.get("cookie")
+                self._notify = config.get("notify")
+                self._cron = config.get("cron")
+                self._onlyonce = config.get("onlyonce")
+        except Exception as e:
+            logger.error(f"P115Offline初始化错误: {str(e)}", exc_info=True)
 
     def update_scheduler(self):
         """配置定时任务"""
@@ -193,12 +210,12 @@ class P115Offline(_PluginBase):
                 return hash_str
         return hash_str
 
-    def stop_plugin(self):
-        """停止插件时清理定时器"""
-        if self.scheduler.get_job("p115_rss_sync"):
-            self.scheduler.remove_job("p115_rss_sync")
-        if self.scheduler.get_job("p115_status_sync"):
-            self.scheduler.remove_job("p115_status_sync")
+    def get_state(self) -> bool:
+        logger.info(f"hdhivesign状态: {self._enabled}")
+        return self._enabled
+
+    def get_service(self) -> List[Dict[str, Any]]:
+        return []
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
@@ -577,3 +594,19 @@ class P115Offline(_PluginBase):
                 }
             ]
         }]
+
+    def get_api(self) -> List[Dict[str, Any]]:
+        return []
+
+    def stop_service(self):
+        """
+        停止服务
+        """
+        try:
+            if self._scheduler:
+                self._scheduler.remove_all_jobs()
+                if self._scheduler.running:
+                    self._scheduler.shutdown()
+                self._scheduler = None
+        except Exception as e:
+            logger.error(f"停止影巢签到服务失败: {str(e)}")
