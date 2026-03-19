@@ -201,6 +201,58 @@ class P115Offline(_PluginBase):
         if self.scheduler.get_job("p115_status_sync"):
             self.scheduler.remove_job("p115_status_sync")
 
+    def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
+        """
+        构建插件配置页面
+        """
+        return [
+            {
+                'component': 'VForm',
+                'content': [
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 6}, 'content': [
+                                {'component': 'VSwitch', 'props': {'model': 'enabled', 'label': '启用 115 离线助手'}}
+                            ]},
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 6}, 'content': [
+                                {'component': 'VTextField',
+                                 'props': {'model': 'interval', 'label': '检查频率 (分钟)', 'type': 'number'}}
+                            ]}
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {'component': 'VCol', 'props': {'cols': 12}, 'content': [
+                                {'component': 'VTextField', 'props': {'model': 'cookie', 'label': '115 Cookie',
+                                                                      'placeholder': '填入抓取到的 115 Cookie'}}
+                            ]}
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 8}, 'content': [
+                                {'component': 'VTextField', 'props': {'model': 'rss_url', 'label': 'RSS 订阅地址',
+                                                                      'placeholder': '输入 M-Team 等站点的 RSS 链接'}}
+                            ]},
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4}, 'content': [
+                                {'component': 'VTextField', 'props': {'model': 'dir_id', 'label': '115 下载目录 ID',
+                                                                      'placeholder': '默认传 0 代表根目录'}}
+                            ]}
+                        ]
+                    }
+                ]
+            }
+        ], {
+            "enabled": False,
+            "interval": 30,
+            "cookie": "",
+            "rss_url": "",
+            "dir_id": "0"
+        }
+
     def get_page(self) -> List[dict]:
         """
         构建插件详情页面，展示离线历史
