@@ -54,7 +54,7 @@ class P115Offline(_PluginBase):
                 logger.info("执行一次订阅")
                 self._scheduler = BackgroundScheduler(timezone=settings.TZ)
                 self._manual_trigger = True
-                self._scheduler.add_job(func=self.sync_rss(), trigger='date',
+                self._scheduler.add_job(func=self.sync_rss, trigger='date',
                                     run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
                                     name="订阅")
                 self._onlyonce = False
@@ -82,7 +82,7 @@ class P115Offline(_PluginBase):
         if not cookie:
             return None
 
-        if not self._client or self._client.cookie != cookie:
+        if not self._client:
             self._client = P115Client(cookie)
         return self._client
 
@@ -118,6 +118,7 @@ class P115Offline(_PluginBase):
                         self._add_history(info_hash, entry.title, magnet)
                         logger.info(f"【115离线】成功添加任务：{entry.title}")
                         self.post_message(title="115 离线成功", text=f"任务：{entry.title}\n已添加到 115 离线下载。")
+                        return
         except Exception as e:
             logger.error(f"【115离线】RSS 同步异常: {str(e)}")
 
@@ -169,6 +170,14 @@ class P115Offline(_PluginBase):
         # 原封不动保存回去
         self.save_data("history", history)
 
+    def clear_history(self, **kwargs):
+        """
+        清空历史记录的实际执行函数
+        """
+        self.save_data("history", {})
+        # 返回 code: 0 代表成功，MoviePilot 前端会自动弹出绿色的 msg 提示
+        return {"code": 0, "msg": "历史记录已彻底清空！刷新页面即可看到最新状态。"}
+
     def _get_incomplete_tasks(self):
         """找出所有状态为1（下载中）的任务"""
         history = self.get_data("history") or {}
@@ -213,7 +222,7 @@ class P115Offline(_PluginBase):
         return hash_str
 
     def get_state(self) -> bool:
-        logger.info(f"hdhivesign状态: {self._enabled}")
+        logger.info(f"p115Offline状态: {self._enabled}")
         return self._enabled
 
     def get_service(self) -> List[Dict[str, Any]]:
@@ -266,10 +275,6 @@ class P115Offline(_PluginBase):
                                     }
                                 ]
                             },
-                            # {'component': 'VCol', 'props': {'cols': 12, 'md': 6}, 'content': [
-                            #     {'component': 'VTextField',
-                            #      'props': {'model': 'interval', 'label': '检查频率 (分钟)', 'type': 'number'}}
-                            # ]},
                             {
                                 'component': 'VCol',
                                 'props': {
@@ -325,11 +330,7 @@ class P115Offline(_PluginBase):
         构建插件详情页面，展示离线历史
         """
         history_dict = self.get_data("history") or {}
-        # 把字典转成列表，并按时间倒序排列
         history_list = sorted(history_dict.values(), key=lambda x: x.get("add_time", ""), reverse=True)
-
-        if not history_list:
-            return [{'component': 'VAlert', 'props': {'type': 'info', 'text': '暂无离线下载记录。'}}]
 
         history_rows = []
         for h in history_list:
@@ -350,31 +351,73 @@ class P115Offline(_PluginBase):
                 ]
             })
 
-        return [{
-            'component': 'VCard',
-            'props': {'variant': 'outlined'},
-            'content': [
-                {'component': 'VCardTitle', 'text': '⚡ 115 离线下载历史'},
-                {
-                    'component': 'VCardText',
-                    'content': [{
-                        'component': 'VTable',
-                        'props': {'hover': True, 'density': 'compact'},
-                        'content': [
-                            {'component': 'thead', 'content': [{'component': 'tr', 'content': [
-                                {'component': 'th', 'text': '推送时间', 'props': {'width': '200px'}},
-                                {'component': 'th', 'text': '状态', 'props': {'width': '100px'}},
-                                {'component': 'th', 'text': '任务名称'}
-                            ]}]},
-                            {'component': 'tbody', 'content': history_rows}
-                        ]
-                    }]
+        # 👇 这是从你找到的源码学来的“带点击事件的清空按钮”
+        clear_button = {
+            'component': 'VBtn',
+            'props': {
+                'color': 'error',
+                'variant': 'elevated',
+                'prepend-icon': 'mdi-delete-sweep',
+                'class': 'mb-4'  # 底部留点边距
+            },
+            'text': '一键清空历史记录',
+            'events': {
+                'click': {
+                    # 注意这里的路径：plugin/插件类名/api路径
+                    'api': 'plugin/P115Offline/clear_history',
+                    'method': 'post'
                 }
-            ]
-        }]
+            }
+        }
 
-    def get_api(self) -> List[Dict[str, Any]]:
-        return []
+        # 如果没有历史记录，就只展示一个提示
+        if not history_list:
+            return [
+                clear_button,
+                {'component': 'VAlert', 'props': {'type': 'info', 'text': '暂无离线下载记录。'}}
+            ]
+
+        # 正常展示按钮和表格
+        return [
+            clear_button,
+            {
+                'component': 'VCard',
+                'props': {'variant': 'outlined'},
+                'content': [
+                    {'component': 'VCardTitle', 'text': '⚡ 115 离线下载历史'},
+                    {
+                        'component': 'VCardText',
+                        'content': [{
+                            'component': 'VTable',
+                            'props': {'hover': True, 'density': 'compact'},
+                            'content': [
+                                {'component': 'thead', 'content': [{'component': 'tr', 'content': [
+                                    {'component': 'th', 'text': '推送时间', 'props': {'width': '200px'}},
+                                    {'component': 'th', 'text': '状态', 'props': {'width': '100px'}},
+                                    {'component': 'th', 'text': '任务名称'}
+                                ]}]},
+                                {'component': 'tbody', 'content': history_rows}
+                            ]
+                        }]
+                    }
+                ]
+            }
+        ]
+
+    def get_api(self) -> list:
+        """
+        对外暴露接口，系统会自动生成执行按钮
+        """
+        return [
+            {
+                "path": "/clear_history",
+                "endpoint": self.clear_history,
+                "auth": "bear",
+                "methods": ["POST"],
+                "summary": "清空历史记录",
+                "description": "一键清空所有的 115 离线下载历史。",
+            }
+        ]
 
     def stop_service(self):
         """
