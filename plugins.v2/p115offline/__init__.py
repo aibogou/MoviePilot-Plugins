@@ -3,8 +3,7 @@ import base64
 import logging
 import feedparser
 from datetime import datetime
-from typing import Any, List, Dict, Optional
-
+from typing import Any, List, Dict,Tuple, Optional
 from app.plugins import _PluginBase
 from app.log import logger
 from p115client import P115Client
@@ -15,7 +14,7 @@ class P115Offline(_PluginBase):
     plugin_name = "115离线助手"
     plugin_desc = "支持 RSS 订阅自动离线到 115，并自动同步下载状态。"
     plugin_icon = "download"
-    plugin_version = "1.0.2"
+    plugin_version = "1.0.3"
     plugin_author = "Gemini"
 
     # 内部变量
