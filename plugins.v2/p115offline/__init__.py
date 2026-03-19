@@ -2,12 +2,15 @@ import re
 import base64
 import logging
 import feedparser
-from datetime import datetime
+from datetime import datetime,timedelta
 from typing import Any, List, Dict,Tuple, Optional
 from app.plugins import _PluginBase
 from app.log import logger
 from p115client import P115Client
 from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+from app.core.config import settings
+import pytz
 
 
 class P115Offline(_PluginBase):
@@ -24,6 +27,7 @@ class P115Offline(_PluginBase):
     _notify = False
     _onlyonce = False
     _cron = None
+    _rss_url = None
 
     # 定时器
     _scheduler: Optional[BackgroundScheduler] = None
@@ -44,39 +48,32 @@ class P115Offline(_PluginBase):
                 self._notify = config.get("notify")
                 self._cron = config.get("cron")
                 self._onlyonce = config.get("onlyonce")
+                self._rss_url = config.get("rss_url")
+
+            if self._onlyonce:
+                logger.info("执行一次订阅")
+                self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+                self._manual_trigger = True
+                self._scheduler.add_job(func=self.sync_rss(), trigger='date',
+                                    run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
+                                    name="订阅")
+                self._onlyonce = False
+                self.update_config({
+                    "onlyonce": False,
+                    "enabled": self._enabled,
+                    "cookie": self._cookie,
+                    "notify": self._notify,
+                    "cron": self._cron,
+                    "rss_url": self._rss_url,
+                })
+
+                # 启动任务
+                if self._scheduler.get_jobs():
+                    self._scheduler.print_jobs()
+                    self._scheduler.start()
         except Exception as e:
             logger.error(f"P115Offline初始化错误: {str(e)}", exc_info=True)
 
-    def update_scheduler(self):
-        """配置定时任务"""
-        config = self.get_config()
-        interval = int(config.get("interval", 30))
-        enabled = config.get("enabled")
-
-        # 先清理旧任务
-        if self.scheduler.get_job("p115_rss_sync"):
-            self.scheduler.remove_job("p115_rss_sync")
-        if self.scheduler.get_job("p115_status_sync"):
-            self.scheduler.remove_job("p115_status_sync")
-
-        if enabled:
-            # 任务 A：定期检查 RSS
-            self.scheduler.add_job(
-                func=self.sync_rss,
-                trigger='interval',
-                minutes=interval,
-                id='p115_rss_sync',
-                replace_existing=True
-            )
-            # 任务 B：定期同步下载状态
-            self.scheduler.add_job(
-                func=self.sync_status,
-                trigger='interval',
-                minutes=2,  # 稍微放宽到 2 分钟，避免请求过于频繁
-                id='p115_status_sync',
-                replace_existing=True
-            )
-            logger.info(f"【115离线】定时任务已启动，检查间隔：{interval}分钟")
 
     def get_p115_client(self):
         """获取 115 客户端实例"""
@@ -220,6 +217,23 @@ class P115Offline(_PluginBase):
         return self._enabled
 
     def get_service(self) -> List[Dict[str, Any]]:
+        if self._enabled and self._cron:
+            logger.info(f"注册定时服务: {self._cron}")
+            return [{
+                "id": "p115offlineRss",
+                "name": "订阅115离线下载",
+                "trigger": CronTrigger.from_crontab(self._cron),
+                "func": self.sync_rss,
+                "kwargs": {}
+            },
+                {
+                    "id": "p115offlineSync",
+                    "name": "同步115离线状态",
+                    "trigger": CronTrigger.from_crontab(self._cron),
+                    "func": self.sync_status(),
+                    "kwargs": {}
+                }
+            ]
         return []
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
@@ -233,13 +247,45 @@ class P115Offline(_PluginBase):
                     {
                         'component': 'VRow',
                         'content': [
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 6}, 'content': [
+                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4}, 'content': [
                                 {'component': 'VSwitch', 'props': {'model': 'enabled', 'label': '启用 115 离线助手'}}
                             ]},
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 6}, 'content': [
-                                {'component': 'VTextField',
-                                 'props': {'model': 'interval', 'label': '检查频率 (分钟)', 'type': 'number'}}
-                            ]}
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'onlyonce',
+                                            'label': '立即运行一次',
+                                        }
+                                    }
+                                ]
+                            },
+                            # {'component': 'VCol', 'props': {'cols': 12, 'md': 6}, 'content': [
+                            #     {'component': 'VTextField',
+                            #      'props': {'model': 'interval', 'label': '检查频率 (分钟)', 'type': 'number'}}
+                            # ]},
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VCronField',
+                                        'props': {
+                                            'model': 'cron',
+                                            'label': '签到周期'
+                                        }
+                                    }
+                                ]
+                            },
                         ]
                     },
                     {
@@ -268,7 +314,7 @@ class P115Offline(_PluginBase):
             }
         ], {
             "enabled": False,
-            "interval": 30,
+            "cron": "0 8 * * *",
             "cookie": "",
             "rss_url": "",
             "dir_id": "0"
