@@ -15,7 +15,7 @@ class P115Offline(_PluginBase):
     plugin_name = "115离线助手"
     plugin_desc = "支持 RSS 订阅自动离线到 115，并自动同步下载状态。"
     plugin_icon = "download"
-    plugin_version = "1.0.1"
+    plugin_version = "1.0.2"
     plugin_author = "Gemini"
 
     # 内部变量
@@ -203,7 +203,7 @@ class P115Offline(_PluginBase):
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
-        构建插件配置页面
+        返回插件配置的表单
         """
         return [
             {
@@ -212,93 +212,366 @@ class P115Offline(_PluginBase):
                     {
                         'component': 'VRow',
                         'content': [
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 6}, 'content': [
-                                {'component': 'VSwitch', 'props': {'model': 'enabled', 'label': '启用 115 离线助手'}}
-                            ]},
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 6}, 'content': [
-                                {'component': 'VTextField',
-                                 'props': {'model': 'interval', 'label': '检查频率 (分钟)', 'type': 'number'}}
-                            ]}
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'enabled',
+                                            'label': '启用插件',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'notify',
+                                            'label': '开启通知',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'onlyonce',
+                                            'label': '立即运行一次',
+                                        }
+                                    }
+                                ]
+                            }
                         ]
                     },
                     {
                         'component': 'VRow',
                         'content': [
-                            {'component': 'VCol', 'props': {'cols': 12}, 'content': [
-                                {'component': 'VTextField', 'props': {'model': 'cookie', 'label': '115 Cookie',
-                                                                      'placeholder': '填入抓取到的 115 Cookie'}}
-                            ]}
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'cookie',
+                                            'label': '站点Cookie',
+                                            'placeholder': '请输入影巢站点Cookie值'
+                                        }
+                                    }
+                                ]
+                            }
                         ]
                     },
                     {
                         'component': 'VRow',
                         'content': [
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 8}, 'content': [
-                                {'component': 'VTextField', 'props': {'model': 'rss_url', 'label': 'RSS 订阅地址',
-                                                                      'placeholder': '输入 M-Team 等站点的 RSS 链接'}}
-                            ]},
-                            {'component': 'VCol', 'props': {'cols': 12, 'md': 4}, 'content': [
-                                {'component': 'VTextField', 'props': {'model': 'dir_id', 'label': '115 下载目录 ID',
-                                                                      'placeholder': '默认传 0 代表根目录'}}
-                            ]}
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'username',
+                                            'label': '用户名/邮箱（用于自动登录）',
+                                            'placeholder': '例如：email@example.com'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'password',
+                                            'label': '密码（用于自动登录）',
+                                            'placeholder': '请输入密码',
+                                            'type': 'password'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'base_url',
+                                            'label': '站点地址',
+                                            'placeholder': '例如：https://hdhive.online 或新域名',
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VCronField',
+                                        'props': {
+                                            'model': 'cron',
+                                            'label': '签到周期'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'max_retries',
+                                            'label': '最大重试次数',
+                                            'type': 'number',
+                                            'placeholder': '3'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'retry_interval',
+                                            'label': '重试间隔(秒)',
+                                            'type': 'number',
+                                            'placeholder': '30'
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'history_days',
+                                            'label': '历史保留天数',
+                                            'type': 'number',
+                                            'placeholder': '30'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '【使用教程】\n1. 登录影巢站点（具体域名请在上方“站点地址”中填写），按F12打开开发者工具。\n2. 切换到"应用(Application)" -> "Cookie"，或"网络(Network)"选项卡，找到发往API的请求。\n3. 复制完整的Cookie字符串。\n4. 确保Cookie中包含 `token` 和 `csrf_access_token` 字段。\n5. 粘贴到上方输入框，启用插件并保存。\n\n⚠️ 影巢可能变更域名，若签到异常请先更新“站点地址”。插件会自动使用系统配置的代理。'
+                                        }
+                                    }
+                                ]
+                            }
                         ]
                     }
                 ]
             }
         ], {
             "enabled": False,
-            "interval": 30,
+            "notify": True,
+            "onlyonce": False,
             "cookie": "",
-            "rss_url": "",
-            "dir_id": "0"
+            "base_url": "https://hdhive.com",
+            "cron": "0 8 * * *",
+            "max_retries": 3,
+            "retry_interval": 30,
+            "history_days": 30,
+            "username": "",
+            "password": ""
         }
 
     def get_page(self) -> List[dict]:
         """
-        构建插件详情页面，展示离线历史
+        构建插件详情页面，展示签到历史 (完全参照 qmjsign)
         """
-        history_dict = self.get_data("history") or {}
-        # 把字典转成列表，并按时间倒序排列
-        history_list = sorted(history_dict.values(), key=lambda x: x.get("add_time", ""), reverse=True)
+        historys = self.get_data('sign_history') or []
+        user = self.get_data('hdhive_user_info') or {}
+        consecutive_days = self.get_data('consecutive_days') or 0
 
-        if not history_list:
-            return [{'component': 'VAlert', 'props': {'type': 'info', 'text': '暂无离线下载记录。'}}]
+        info_card = []
+        if user:
+            avatar = user.get('avatar_url') or ''
+            nickname = user.get('nickname') or '—'
+            points = user.get('points') if user.get('points') is not None else '—'
+            signin_days_total = user.get('signin_days_total') if user.get('signin_days_total') is not None else '—'
+            created_at = user.get('created_at') or '—'
+            info_card = [{
+                'component': 'VCard',
+                'props': {'variant': 'outlined', 'class': 'mb-4'},
+                'content': [
+                    {
+                        'component': 'VCardTitle',
+                        'props': {'class': 'd-flex align-center justify-space-between'},
+                        'content': [
+                            {
+                                'component': 'div',
+                                'content': [
+                                    {'component': 'span', 'props': {'class': 'text-h6'}, 'text': '👤 影巢用户信息'},
+                                    {'component': 'div', 'props': {'class': 'text-caption'}, 'text': f'加入时间：{created_at}'}
+                                ]
+                            },
+                            {'component': 'VAvatar', 'props': {'size': 64}, 'content': [{'component': 'img', 'props': {'src': avatar, 'alt': nickname}}]}
+                        ]
+                    },
+                    {'component': 'VDivider'},
+                    {
+                        'component': 'VCardText',
+                        'content': [
+                            {
+                                'component': 'VRow',
+                                'content': [
+                                    {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VChip', 'props': {'variant': 'elevated', 'color': 'primary', 'class': 'mb-2'}, 'text': f'用户：{nickname}'}]},
+                                    {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VChip', 'props': {'variant': 'elevated', 'color': 'amber-darken-2', 'class': 'mb-2'}, 'text': f'积分：{points}'}]},
+                                    {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VChip', 'props': {'variant': 'elevated', 'color': 'success', 'class': 'mb-2'}, 'text': f'累计签到天数（站点）：{signin_days_total}'}]},
+                                    {'component': 'VCol', 'props': {'cols': 12, 'md': 3}, 'content': [{'component': 'VChip', 'props': {'variant': 'elevated', 'color': 'cyan-darken-2', 'class': 'mb-2'}, 'text': f'连续签到天数（插件）：{consecutive_days}'}]},
+                                ]
+                            },
+                            {'component': 'VAlert', 'props': {'type': 'info', 'variant': 'tonal', 'class': 'mt-2', 'text': '注：累计签到天数来自站点数据；插件统计的是连续天数，两者可能不同'}},
+                        ]
+                    }
+                ]
+            }]
+
+        if not historys:
+            return info_card + [{
+                'component': 'VAlert',
+                'props': {
+                    'type': 'info', 'variant': 'tonal',
+                    'text': '暂无签到记录，请等待下一次自动签到或手动触发一次。',
+                    'class': 'mb-2'
+                }
+            }]
+
+        historys = sorted(historys, key=lambda x: x.get("date", ""), reverse=True)
 
         history_rows = []
-        for h in history_list:
-            status = h.get("status")
-            if status == 2:
-                status_chip = {'component': 'VChip', 'props': {'color': 'success', 'size': 'small'}, 'text': '已完成'}
-            elif status == -1:
-                status_chip = {'component': 'VChip', 'props': {'color': 'error', 'size': 'small'}, 'text': '失败'}
+        for history in historys:
+            status = history.get("status", "未知")
+            if "成功" in status or "已签到" in status:
+                status_color = "success"
+            elif "失败" in status:
+                status_color = "error"
             else:
-                status_chip = {'component': 'VChip', 'props': {'color': 'primary', 'size': 'small'}, 'text': '下载中'}
+                status_color = "info"
 
             history_rows.append({
                 'component': 'tr',
                 'content': [
-                    {'component': 'td', 'text': h.get("add_time", "")},
-                    {'component': 'td', 'content': [status_chip]},
-                    {'component': 'td', 'text': h.get("title", "未知任务")}
+                    {'component': 'td', 'props': {'class': 'text-caption'}, 'text': history.get("date", "")},
+                    {
+                        'component': 'td',
+                        'content': [{
+                            'component': 'VChip',
+                            'props': {'color': status_color, 'size': 'small', 'variant': 'outlined'},
+                            'text': status
+                        }]
+                    },
+                    {'component': 'td', 'text': history.get('message', '—')},
+                    {'component': 'td', 'text': str(history.get('points', '—'))},
+                    {'component': 'td', 'text': str(history.get('days', '—'))},
                 ]
             })
 
-        return [{
+        return info_card + [{
             'component': 'VCard',
-            'props': {'variant': 'outlined'},
+            'props': {'variant': 'outlined', 'class': 'mb-4'},
             'content': [
-                {'component': 'VCardTitle', 'text': '⚡ 115 离线下载历史'},
+                {'component': 'VCardTitle', 'props': {'class': 'text-h6'}, 'text': '📊 影巢签到历史'},
                 {
                     'component': 'VCardText',
                     'content': [{
                         'component': 'VTable',
                         'props': {'hover': True, 'density': 'compact'},
                         'content': [
-                            {'component': 'thead', 'content': [{'component': 'tr', 'content': [
-                                {'component': 'th', 'text': '推送时间', 'props': {'width': '200px'}},
-                                {'component': 'th', 'text': '状态', 'props': {'width': '100px'}},
-                                {'component': 'th', 'text': '任务名称'}
-                            ]}]},
+                            {
+                                'component': 'thead',
+                                'content': [{
+                                    'component': 'tr',
+                                    'content': [
+                                        {'component': 'th', 'text': '时间'},
+                                        {'component': 'th', 'text': '状态'},
+                                        {'component': 'th', 'text': '详情'},
+                                        {'component': 'th', 'text': '奖励积分'},
+                                        {'component': 'th', 'text': '连续天数'}
+                                    ]
+                                }]
+                            },
                             {'component': 'tbody', 'content': history_rows}
                         ]
                     }]

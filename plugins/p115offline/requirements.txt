@@ -1,2 +1,0 @@
-p115client
-feedparser
