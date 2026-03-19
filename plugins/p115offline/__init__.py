@@ -12,10 +12,10 @@ from p115client import P115Client
 
 class P115Offline(_PluginBase):
     # --- 插件元数据 ---
-    plugin_name = "115 离线助手"
+    plugin_name = "115离线助手"
     plugin_desc = "支持 RSS 订阅自动离线到 115，并自动同步下载状态。"
     plugin_icon = "download"
-    plugin_version = "1.0.0"
+    plugin_version = "1.1.0"
     plugin_author = "Gemini"
 
     # 内部变量
