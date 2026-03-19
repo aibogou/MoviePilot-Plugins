@@ -170,7 +170,7 @@ class P115Offline(_PluginBase):
         # 原封不动保存回去
         self.save_data("history", history)
 
-    def clear_history(self, **kwargs):
+    def clear_history(self):
         """
         清空历史记录的实际执行函数
         """
