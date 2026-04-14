@@ -18,21 +18,21 @@ from app.utils.string import StringUtils
 lock = threading.Lock()
 
 
-class TorrentRemover(_PluginBase):
+class TorrentRemoverPlus(_PluginBase):
     # 插件名称
-    plugin_name = "自动删种"
+    plugin_name = "自动删种Plus"
     # 插件描述
-    plugin_desc = "自动删除下载器中的下载任务。"
+    plugin_desc = "自动删除下载器中的下载任务。(删除条件增加做种人数)"
     # 插件图标
     plugin_icon = "delete.jpg"
     # 插件版本
-    plugin_version = "2.2"
+    plugin_version = "1.0"
     # 插件作者
-    plugin_author = "jxxghp"
+    plugin_author = "aibogo"
     # 作者主页
-    author_url = "https://github.com/jxxghp"
+    author_url = "https://github.com/aibogo"
     # 插件配置项ID前缀
-    plugin_config_prefix = "torrentremover_"
+    plugin_config_prefix = "torrentremoverplus_"
     # 加载顺序
     plugin_order = 8
     # 可使用的用户级别
@@ -54,6 +54,7 @@ class TorrentRemover(_PluginBase):
     _ratio = None
     _time = None
     _upspeed = None
+    _seeders = None
     _labels = None
     _pathkeywords = None
     _trackerkeywords = None
@@ -76,6 +77,7 @@ class TorrentRemover(_PluginBase):
             self._ratio = config.get("ratio")
             self._time = config.get("time")
             self._upspeed = config.get("upspeed")
+            self._seeders = config.get("seeders") if config.get("seeders") is not None else ""
             self._labels = config.get("labels") or ""
             self._pathkeywords = config.get("pathkeywords") or ""
             self._trackerkeywords = config.get("trackerkeywords") or ""
@@ -109,6 +111,7 @@ class TorrentRemover(_PluginBase):
                     "ratio": self._ratio,
                     "time": self._time,
                     "upspeed": self._upspeed,
+                    "seeders": self._seeders,
                     "labels": self._labels,
                     "pathkeywords": self._pathkeywords,
                     "trackerkeywords": self._trackerkeywords,
@@ -145,8 +148,8 @@ class TorrentRemover(_PluginBase):
         """
         if self.get_state():
             return [{
-                "id": "TorrentRemover",
-                "name": "自动删种服务",
+                "id": "TorrentRemoverPlus",
+                "name": "自动删种服务Plus",
                 "trigger": CronTrigger.from_crontab(self._cron),
                 "func": self.delete_torrents,
                 "kwargs": {}
@@ -326,6 +329,23 @@ class TorrentRemover(_PluginBase):
                                             'model': 'upspeed',
                                             'label': '平均上传速度',
                                             'placeholder': ''
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VTextField',
+                                        'props': {
+                                            'model': 'seeders',
+                                            'label': '做种人数',
+                                            'placeholder': '大于该值才满足条件',
+                                            'type': 'number'
                                         }
                                     }
                                 ]
@@ -557,6 +577,7 @@ class TorrentRemover(_PluginBase):
             "ratio": "",
             "time": "",
             "upspeed": "",
+            "seeders": "",
             "labels": "",
             "pathkeywords": "",
             "trackerkeywords": "",
@@ -622,6 +643,35 @@ class TorrentRemover(_PluginBase):
         """
         return self.service_infos.get(name).config
 
+    @staticmethod
+    def __has_value(value: Any) -> bool:
+        return value is not None and str(value).strip() != ""
+
+    @staticmethod
+    def __to_int(value: Any, default: int = 0) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    def __get_qb_seeders(self, torrent: Any) -> int:
+        return self.__to_int(getattr(torrent, "num_complete", 0))
+
+    def __get_tr_seeders(self, torrent: Any) -> int:
+        if not getattr(torrent, "tracker_stats", None):
+            return 0
+
+        max_seeders = 0
+        for tracker_stat in torrent.tracker_stats:
+            seeder_count = self.__to_int(getattr(tracker_stat, "seeder_count", 0))
+            if hasattr(tracker_stat, "get"):
+                seeder_count = self.__to_int(
+                    tracker_stat.get("seeder_count", tracker_stat.get("seederCount", seeder_count))
+                )
+            if seeder_count > max_seeders:
+                max_seeders = seeder_count
+        return max_seeders
+
     def delete_torrents(self):
         """
         定时删除下载器中的下载任务
@@ -642,7 +692,8 @@ class TorrentRemover(_PluginBase):
                                 return
                             text_item = f"{torrent.get('name')} " \
                                         f"来自站点：{torrent.get('site')} " \
-                                        f"大小：{StringUtils.str_filesize(torrent.get('size'))}"
+                                        f"大小：{StringUtils.str_filesize(torrent.get('size'))} " \
+                                        f"做种人数：{torrent.get('seeders', 0)}"
                             # 暂停种子
                             downlader_obj.stop_torrents(ids=[torrent.get("id")])
                             logger.info(f"自动删种任务 暂停种子：{text_item}")
@@ -655,7 +706,8 @@ class TorrentRemover(_PluginBase):
                                 return
                             text_item = f"{torrent.get('name')} " \
                                         f"来自站点：{torrent.get('site')} " \
-                                        f"大小：{StringUtils.str_filesize(torrent.get('size'))}"
+                                        f"大小：{StringUtils.str_filesize(torrent.get('size'))} " \
+                                        f"做种人数：{torrent.get('seeders', 0)}"
                             # 删除种子
                             downlader_obj.delete_torrents(delete_file=False,
                                                           ids=[torrent.get("id")])
@@ -669,7 +721,8 @@ class TorrentRemover(_PluginBase):
                                 return
                             text_item = f"{torrent.get('name')} " \
                                         f"来自站点：{torrent.get('site')} " \
-                                        f"大小：{StringUtils.str_filesize(torrent.get('size'))}"
+                                        f"大小：{StringUtils.str_filesize(torrent.get('size'))} " \
+                                        f"做种人数：{torrent.get('seeders', 0)}"
                             # 删除种子
                             downlader_obj.delete_torrents(delete_file=True,
                                                           ids=[torrent.get("id")])
@@ -690,6 +743,7 @@ class TorrentRemover(_PluginBase):
         """
         检查QB下载任务是否符合条件
         """
+        torrent_seeders = self.__get_qb_seeders(torrent)
         # 完成时间
         date_done = torrent.completion_on if torrent.completion_on > 0 else torrent.added_on
         # 现在时间
@@ -711,6 +765,8 @@ class TorrentRemover(_PluginBase):
         # 文件大小
         if self._size and (torrent.size >= int(maxsize) or torrent.size <= int(minsize)):
             return None
+        if self.__has_value(self._seeders) and torrent_seeders <= int(self._seeders):
+            return None
         if self._upspeed and torrent_upload_avs >= float(self._upspeed) * 1024:
             return None
         if self._pathkeywords and not re.findall(self._pathkeywords, torrent.save_path, re.I):
@@ -725,13 +781,15 @@ class TorrentRemover(_PluginBase):
             "id": torrent.hash,
             "name": torrent.name,
             "site": StringUtils.get_url_sld(torrent.tracker),
-            "size": torrent.size
+            "size": torrent.size,
+            "seeders": torrent_seeders
         }
 
     def __get_tr_torrent(self, torrent: Any) -> Optional[dict]:
         """
         检查TR下载任务是否符合条件
         """
+        torrent_seeders = self.__get_tr_seeders(torrent)
         # 完成时间
         date_done = torrent.date_done or torrent.date_added
         # 现在时间
@@ -752,6 +810,8 @@ class TorrentRemover(_PluginBase):
         if self._time and torrent_seeding_time <= float(self._time) * 3600:
             return None
         if self._size and (torrent.total_size >= int(maxsize) or torrent.total_size <= int(minsize)):
+            return None
+        if self.__has_value(self._seeders) and torrent_seeders <= int(self._seeders):
             return None
         if self._upspeed and torrent_upload_avs >= float(self._upspeed) * 1024:
             return None
@@ -774,7 +834,8 @@ class TorrentRemover(_PluginBase):
             "id": torrent.hashString,
             "name": torrent.name,
             "site": torrent.trackers[0].get("sitename") if torrent.trackers else "",
-            "size": torrent.total_size
+            "size": torrent.total_size,
+            "seeders": torrent_seeders
         }
 
     def get_remove_torrents(self, downloader: str):
@@ -818,11 +879,13 @@ class TorrentRemover(_PluginBase):
                         plus_name = torrent.name
                         plus_size = torrent.size
                         plus_site = StringUtils.get_url_sld(torrent.tracker)
+                        plus_seeders = self.__get_qb_seeders(torrent)
                     else:
                         plus_id = torrent.hashString
                         plus_name = torrent.name
                         plus_size = torrent.total_size
                         plus_site = torrent.trackers[0].get("sitename") if torrent.trackers else ""
+                        plus_seeders = self.__get_tr_seeders(torrent)
                     # 比对名称和大小
                     if plus_name == name \
                             and plus_size == size \
@@ -832,7 +895,8 @@ class TorrentRemover(_PluginBase):
                                 "id": plus_id,
                                 "name": plus_name,
                                 "site": plus_site,
-                                "size": plus_size
+                                "size": plus_size,
+                                "seeders": plus_seeders
                             }
                         )
             if remove_torrents_plus:
