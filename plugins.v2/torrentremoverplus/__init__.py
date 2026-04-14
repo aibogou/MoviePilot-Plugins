@@ -26,7 +26,7 @@ class TorrentRemoverPlus(_PluginBase):
     # 插件图标
     plugin_icon = "delete.jpg"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.0.1"
     # 插件作者
     plugin_author = "aibogo"
     # 作者主页
@@ -233,7 +233,8 @@ class TorrentRemoverPlus(_PluginBase):
                                             'items': [
                                                 {'title': '暂停', 'value': 'pause'},
                                                 {'title': '删除种子', 'value': 'delete'},
-                                                {'title': '删除种子和文件', 'value': 'deletefile'}
+                                                {'title': '删除种子和文件', 'value': 'deletefile'},
+                                                {'title': '删除种子和文件(增强版)', 'value': 'deletefileenhanced'}
                                             ]
                                         }
                                     }
@@ -536,6 +537,27 @@ class TorrentRemoverPlus(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
+                                            'text': '删除种子和文件(增强版)：按同一下载器内名称+大小识别同数据任务，并忽略“处理辅种”开关。仅使用原始条件命中的待删除列表做判断；若当前种子存在未进入本次待删除列表的同数据辅种，则跳过当前种子并记录日志；只有同数据任务本身全部也满足条件并进入待删除列表时，才会执行删种删文件。'
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
                                             'text': '任务状态（QB）字典：'
                                                     'downloading：正在下载-传输数据，'
                                                     'stalledDL：正在下载_未建立连接，'
@@ -654,6 +676,29 @@ class TorrentRemoverPlus(_PluginBase):
         except (TypeError, ValueError):
             return default
 
+    @staticmethod
+    def __get_torrent_key(torrent: Dict[str, Any]) -> Tuple[Any, Any]:
+        return torrent.get("name"), torrent.get("size")
+
+    @staticmethod
+    def __unique_torrents(torrents: List[dict]) -> List[dict]:
+        ret_torrents = []
+        torrent_ids = set()
+        for torrent in torrents:
+            torrent_id = torrent.get("id")
+            if not torrent_id or torrent_id in torrent_ids:
+                continue
+            torrent_ids.add(torrent_id)
+            ret_torrents.append(torrent)
+        return ret_torrents
+
+    @staticmethod
+    def __format_torrent_text(torrent: Dict[str, Any]) -> str:
+        return f"{torrent.get('name')} " \
+               f"来自站点：{torrent.get('site')} " \
+               f"大小：{StringUtils.str_filesize(torrent.get('size'))} " \
+               f"做种人数：{torrent.get('seeders', 0)}"
+
     def __get_qb_seeders(self, torrent: Any) -> int:
         return self.__to_int(getattr(torrent, "num_complete", 0))
 
@@ -672,6 +717,75 @@ class TorrentRemoverPlus(_PluginBase):
                 max_seeders = seeder_count
         return max_seeders
 
+    def __build_torrent_item(self, torrent: Any, downloader_type: str) -> Dict[str, Any]:
+        if downloader_type == "qbittorrent":
+            return {
+                "id": torrent.hash,
+                "name": torrent.name,
+                "site": StringUtils.get_url_sld(torrent.tracker),
+                "size": torrent.size,
+                "seeders": self.__get_qb_seeders(torrent)
+            }
+        return {
+            "id": torrent.hashString,
+            "name": torrent.name,
+            "site": torrent.trackers[0].get("sitename") if torrent.trackers else "",
+            "size": torrent.total_size,
+            "seeders": self.__get_tr_seeders(torrent)
+        }
+
+    def __filter_enhanced_delete_torrents(self, downloader: str,
+                                          remove_torrents: List[dict]) -> Tuple[List[dict], List[dict]]:
+        remove_torrents = self.__unique_torrents(remove_torrents)
+        if not remove_torrents:
+            return [], []
+
+        downloader_obj = self.__get_downloader(downloader)
+        downloader_config = self.__get_downloader_config(downloader)
+        torrents, error_flag = downloader_obj.get_torrents()
+        if error_flag:
+            for torrent in remove_torrents:
+                logger.info(
+                    f"自动删种任务 增强版跳过删除：{self.__format_torrent_text(torrent)} "
+                    f"原因：无法获取下载器全部任务，无法确认是否存在未命中的辅种。"
+                )
+            return [], remove_torrents
+
+        all_torrents = self.__unique_torrents([
+            self.__build_torrent_item(torrent, downloader_config.type)
+            for torrent in torrents
+        ])
+        remove_ids = {torrent.get("id") for torrent in remove_torrents}
+        delete_torrents = []
+        skip_torrents = []
+
+        for torrent in remove_torrents:
+            related_torrents = [
+                item for item in all_torrents
+                if item.get("id") != torrent.get("id")
+                and self.__get_torrent_key(item) == self.__get_torrent_key(torrent)
+            ]
+            unselected_related = [
+                item for item in related_torrents
+                if item.get("id") not in remove_ids
+            ]
+            if unselected_related:
+                related_sites = []
+                for item in unselected_related:
+                    site_name = item.get("site") or "未知站点"
+                    if site_name not in related_sites:
+                        related_sites.append(site_name)
+                related_desc = "、".join(related_sites)
+                logger.info(
+                    f"自动删种任务 增强版跳过删除：{self.__format_torrent_text(torrent)} "
+                    f"原因：存在其他站点的辅种：{related_desc}"
+                )
+                skip_torrents.append(torrent)
+                continue
+            delete_torrents.append(torrent)
+
+        return delete_torrents, skip_torrents
+
     def delete_torrents(self):
         """
         定时删除下载器中的下载任务
@@ -684,16 +798,14 @@ class TorrentRemoverPlus(_PluginBase):
                     logger.info(f"自动删种任务 获取符合处理条件种子数 {len(torrents)}")
                     # 下载器
                     downlader_obj = self.__get_downloader(downloader)
+                    skipped_torrents = []
                     if self._action == "pause":
                         message_text = f"{downloader.title()} 共暂停{len(torrents)}个种子"
                         for torrent in torrents:
                             if self._event.is_set():
                                 logger.info(f"自动删种服务停止")
                                 return
-                            text_item = f"{torrent.get('name')} " \
-                                        f"来自站点：{torrent.get('site')} " \
-                                        f"大小：{StringUtils.str_filesize(torrent.get('size'))} " \
-                                        f"做种人数：{torrent.get('seeders', 0)}"
+                            text_item = self.__format_torrent_text(torrent)
                             # 暂停种子
                             downlader_obj.stop_torrents(ids=[torrent.get("id")])
                             logger.info(f"自动删种任务 暂停种子：{text_item}")
@@ -704,10 +816,7 @@ class TorrentRemoverPlus(_PluginBase):
                             if self._event.is_set():
                                 logger.info(f"自动删种服务停止")
                                 return
-                            text_item = f"{torrent.get('name')} " \
-                                        f"来自站点：{torrent.get('site')} " \
-                                        f"大小：{StringUtils.str_filesize(torrent.get('size'))} " \
-                                        f"做种人数：{torrent.get('seeders', 0)}"
+                            text_item = self.__format_torrent_text(torrent)
                             # 删除种子
                             downlader_obj.delete_torrents(delete_file=False,
                                                           ids=[torrent.get("id")])
@@ -719,18 +828,29 @@ class TorrentRemoverPlus(_PluginBase):
                             if self._event.is_set():
                                 logger.info(f"自动删种服务停止")
                                 return
-                            text_item = f"{torrent.get('name')} " \
-                                        f"来自站点：{torrent.get('site')} " \
-                                        f"大小：{StringUtils.str_filesize(torrent.get('size'))} " \
-                                        f"做种人数：{torrent.get('seeders', 0)}"
+                            text_item = self.__format_torrent_text(torrent)
                             # 删除种子
                             downlader_obj.delete_torrents(delete_file=True,
                                                           ids=[torrent.get("id")])
                             logger.info(f"自动删种任务 删除种子及文件：{text_item}")
                             message_text = f"{message_text}\n{text_item}"
+                    elif self._action == "deletefileenhanced":
+                        torrents, skipped_torrents = self.__filter_enhanced_delete_torrents(downloader, torrents)
+                        message_text = f"{downloader.title()} 共删除{len(torrents)}个种子及文件（增强版）"
+                        if skipped_torrents:
+                            message_text = f"{message_text}，跳过{len(skipped_torrents)}个种子"
+                        for torrent in torrents:
+                            if self._event.is_set():
+                                logger.info(f"自动删种服务停止")
+                                return
+                            text_item = self.__format_torrent_text(torrent)
+                            downlader_obj.delete_torrents(delete_file=True,
+                                                          ids=[torrent.get("id")])
+                            logger.info(f"自动删种任务 删除种子及文件（增强版）：{text_item}")
+                            message_text = f"{message_text}\n{text_item}"
                     else:
                         continue
-                    if torrents and message_text and self._notify:
+                    if message_text and self._notify:
                         self.post_message(
                             mtype=NotificationType.SiteMessage,
                             title=f"【自动删种任务完成】",
@@ -777,13 +897,7 @@ class TorrentRemoverPlus(_PluginBase):
             return None
         if self._torrentcategorys and (not torrent.category or torrent.category not in self._torrentcategorys):
             return None
-        return {
-            "id": torrent.hash,
-            "name": torrent.name,
-            "site": StringUtils.get_url_sld(torrent.tracker),
-            "size": torrent.size,
-            "seeders": torrent_seeders
-        }
+        return self.__build_torrent_item(torrent, "qbittorrent")
 
     def __get_tr_torrent(self, torrent: Any) -> Optional[dict]:
         """
@@ -830,13 +944,7 @@ class TorrentRemoverPlus(_PluginBase):
                     return None
         if self._errorkeywords and not re.findall(self._errorkeywords, torrent.error_string, re.I):
             return None
-        return {
-            "id": torrent.hashString,
-            "name": torrent.name,
-            "site": torrent.trackers[0].get("sitename") if torrent.trackers else "",
-            "size": torrent.total_size,
-            "seeders": torrent_seeders
-        }
+        return self.__build_torrent_item(torrent, "transmission")
 
     def get_remove_torrents(self, downloader: str):
         """
@@ -867,38 +975,25 @@ class TorrentRemoverPlus(_PluginBase):
                 continue
             remove_torrents.append(item)
         # 处理辅种
-        if self._samedata and remove_torrents:
-            remove_ids = [t.get("id") for t in remove_torrents]
+        if self._samedata and remove_torrents and self._action != "deletefileenhanced":
+            remove_ids = {t.get("id") for t in remove_torrents}
             remove_torrents_plus = []
+            remove_torrents_plus_ids = set()
             for remove_torrent in remove_torrents:
                 name = remove_torrent.get("name")
                 size = remove_torrent.get("size")
                 for torrent in torrents:
-                    if downloader_config.type == "qbittorrent":
-                        plus_id = torrent.hash
-                        plus_name = torrent.name
-                        plus_size = torrent.size
-                        plus_site = StringUtils.get_url_sld(torrent.tracker)
-                        plus_seeders = self.__get_qb_seeders(torrent)
-                    else:
-                        plus_id = torrent.hashString
-                        plus_name = torrent.name
-                        plus_size = torrent.total_size
-                        plus_site = torrent.trackers[0].get("sitename") if torrent.trackers else ""
-                        plus_seeders = self.__get_tr_seeders(torrent)
+                    plus_torrent = self.__build_torrent_item(torrent, downloader_config.type)
+                    plus_id = plus_torrent.get("id")
+                    plus_name = plus_torrent.get("name")
+                    plus_size = plus_torrent.get("size")
                     # 比对名称和大小
                     if plus_name == name \
                             and plus_size == size \
-                            and plus_id not in remove_ids:
-                        remove_torrents_plus.append(
-                            {
-                                "id": plus_id,
-                                "name": plus_name,
-                                "site": plus_site,
-                                "size": plus_size,
-                                "seeders": plus_seeders
-                            }
-                        )
+                            and plus_id not in remove_ids \
+                            and plus_id not in remove_torrents_plus_ids:
+                        remove_torrents_plus.append(plus_torrent)
+                        remove_torrents_plus_ids.add(plus_id)
             if remove_torrents_plus:
                 remove_torrents.extend(remove_torrents_plus)
-        return remove_torrents
+        return self.__unique_torrents(remove_torrents)
