@@ -21,7 +21,7 @@
     "name": "自动删种Plus",
     "description": "自动删除下载器中的下载任务。(删除条件增加做种人数)",
     "labels": "做种",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "icon": "delete.jpg",
     "author": "aibogo",
     "level": 2,
