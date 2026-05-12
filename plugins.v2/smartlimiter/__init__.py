@@ -9,6 +9,7 @@ from apscheduler.triggers.date import DateTrigger
 from app.core.config import settings
 from app.helper.downloader import DownloaderHelper
 from app.log import logger
+from app.modules.qbittorrent import Qbittorrent
 from app.plugins import _PluginBase
 from app.schemas import NotificationType
 from app.utils.string import StringUtils
@@ -34,12 +35,14 @@ class SmartLimiter(_PluginBase):
     _enabled = False
     _notify = False
     _onlyonce = False
+    _clear_data = False
     _cron = None
     _downloaders = []
     _upload_limit_gb = DEFAULT_LIMIT_GB
     _upload_speed_kbps = DEFAULT_SPEED_KBPS
 
     def init_plugin(self, config: dict = None):
+
         self.stop_service()
 
         logger.info("============= SmartLimiter 初始化 =============")
@@ -48,6 +51,7 @@ class SmartLimiter(_PluginBase):
                 self._enabled = bool(config.get("enabled", False))
                 self._notify = bool(config.get("notify", False))
                 self._onlyonce = bool(config.get("onlyonce", False))
+                self._clear_data = bool(config.get("clear_data", False))
                 self._cron = (config.get("cron") or "").strip()
                 self._downloaders = self.__normalize_downloaders(config.get("downloaders"))
                 self._upload_limit_gb = self.__safe_float(
@@ -58,6 +62,7 @@ class SmartLimiter(_PluginBase):
                     self.__safe_int(config.get("upload_speed_kbps"), self.DEFAULT_SPEED_KBPS),
                 )
 
+            self.__clear_data()
             logger.info(
                 f"SmartLimiter已加载，配置：enabled={self._enabled}, notify={self._notify}, "
                 f"onlyonce={self._onlyonce}, cron={self._cron}, downloaders={self._downloaders}, "
@@ -131,7 +136,7 @@ class SmartLimiter(_PluginBase):
                         "content": [
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
+                                "props": {"cols": 12, "md": 3},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -144,7 +149,7 @@ class SmartLimiter(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
+                                "props": {"cols": 12, "md": 3},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -157,13 +162,26 @@ class SmartLimiter(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 4},
+                                "props": {"cols": 12, "md": 3},
                                 "content": [
                                     {
                                         "component": "VSwitch",
                                         "props": {
                                             "model": "onlyonce",
                                             "label": "立即执行一次",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "clear_data",
+                                            "label": "清除统计数据",
                                         },
                                     }
                                 ],
@@ -638,8 +656,7 @@ class SmartLimiter(_PluginBase):
                 current_download_limit = None
 
             if current_download_limit is None:
-                logger.warning(f"SmartLimiter 无法获取下载器 {service.name} 当前下载限速，跳过本次操作")
-                return False
+                current_download_limit = 0
 
             return bool(
                 service.instance.set_speed_limit(
@@ -657,14 +674,16 @@ class SmartLimiter(_PluginBase):
                 return None
 
             downloader_type = self.__downloader_type(service)
-            info = service.instance.transfer_info()
-            if not info:
-                return None
 
             if downloader_type == "qbittorrent":
-                return self.__safe_int(info.get("up_info_data"), None)
+                qb_service:Qbittorrent = service.instance
+                maindata = qb_service.qbc.sync_maindata()
+                return self.__safe_int(maindata.server_state.alltime_ul, None)
 
             if downloader_type == "transmission":
+                info = service.instance.transfer_info()
+                if not info:
+                    return None
                 uploaded = None
                 cumulative_stats = getattr(info, "cumulative_stats", None)
                 if cumulative_stats:
@@ -748,6 +767,29 @@ class SmartLimiter(_PluginBase):
                 "enabled": self._enabled,
                 "notify": self._notify,
                 "onlyonce": False,
+                "clear_data": self._clear_data,
+                "cron": self._cron,
+                "downloaders": self._downloaders,
+                "upload_limit_gb": self._upload_limit_gb,
+                "upload_speed_kbps": self._upload_speed_kbps,
+            }
+        )
+        self.update_config(config)
+
+    def __clear_data(self):
+        if not self._clear_data:
+            return
+        if self._clear_data:
+            self.del_data('state')
+
+        self._clear_data = False
+        config = self.get_config() or {}
+        config.update(
+            {
+                "enabled": self._enabled,
+                "notify": self._notify,
+                "onlyonce": self._onlyonce,
+                "clear_data": False,
                 "cron": self._cron,
                 "downloaders": self._downloaders,
                 "upload_limit_gb": self._upload_limit_gb,
