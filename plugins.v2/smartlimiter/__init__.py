@@ -23,7 +23,7 @@ class SmartLimiter(_PluginBase):
     plugin_desc = "按每日累计上传量统一限制已选下载器的上传速度，支持 qBittorrent 和 Transmission。"
     plugin_icon = "upload"
     plugin_version = "1.0.0"
-    plugin_author = "Codex"
+    plugin_author = "aibogo"
     plugin_config_prefix = "smartlimiter_"
     plugin_order = 50
     auth_level = 2
