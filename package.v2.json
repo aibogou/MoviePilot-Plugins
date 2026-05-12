@@ -31,5 +31,17 @@
       "v1.0.1": "增加删除种子和文件(增强版)",
       "v1.0": "首次发布"
     }
+  },
+  "SmartLimiter": {
+    "name": "下载器智能限速",
+    "description": "按每日累计上传量统一限制已选下载器的上传速度，支持 qBittorrent 和 Transmission。",
+    "labels": "做种",
+    "version": "1.0.0",
+    "icon": "delete.jpg",
+    "author": "aibogo",
+    "level": 2,
+    "history": {
+      "v1.0.0": "首次发布"
+    }
   }
 }
