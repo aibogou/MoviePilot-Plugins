@@ -22,7 +22,7 @@ class SmartLimiter(_PluginBase):
     plugin_name = "下载器智能限速"
     plugin_desc = "按每日累计上传量统一限制已选下载器的上传速度，支持 qBittorrent 和 Transmission。"
     plugin_icon = "upload"
-    plugin_version = "1.1.1"
+    plugin_version = "1.1.2"
     plugin_author = "aibogo"
     plugin_config_prefix = "smartlimiter_"
     plugin_order = 50
@@ -537,24 +537,10 @@ class SmartLimiter(_PluginBase):
         return []
 
     def stop_service(self):
-        try:
-            with lock:
-                state = self.get_data("state") or {}
-                if not state.get("limited"):
-                    return
-
-                services = self.__get_selected_services()
-                if not services:
-                    return
-
-                success_count, _ = self.__apply_limit_mode(services, limited=False)
-                if success_count > 0:
-                    state["limited"] = False
-                    state["last_action"] = "unlimit"
-                    state["last_action_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    self.save_data("state", state)
-        except Exception as e:
-            logger.error(f"停止SmartLimiter服务失败：{str(e)}")
+        """
+        停止插件服务时不调整下载器限速，避免插件重载或保存配置时改变下载器当前状态。
+        """
+        return
 
     def run_limit_check(self, triggered_once: bool = False):
         if not self._enabled:

@@ -36,11 +36,12 @@
     "name": "下载器智能限速",
     "description": "按每日累计上传量统一限制已选下载器的上传速度，支持 qBittorrent 和 Transmission。",
     "labels": "做种",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "icon": "delete.jpg",
     "author": "aibogo",
     "level": 2,
     "history": {
+      "v1.1.2": "修复保存配置时会取消限速的问题",
       "v1.1.1": "暂停种子跳过未完成下载的种子",
       "v1.1.0": "增加暂停指定标签的种子",
       "v1.0.0": "首次发布"
