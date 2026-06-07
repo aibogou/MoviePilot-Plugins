@@ -22,7 +22,7 @@ class SmartLimiter(_PluginBase):
     plugin_name = "下载器智能限速"
     plugin_desc = "按每日累计上传量统一限制已选下载器的上传速度，支持 qBittorrent 和 Transmission。"
     plugin_icon = "upload"
-    plugin_version = "1.1.0"
+    plugin_version = "1.1.1"
     plugin_author = "aibogo"
     plugin_config_prefix = "smartlimiter_"
     plugin_order = 50
@@ -740,6 +740,8 @@ class SmartLimiter(_PluginBase):
                 continue
             if not self.__torrent_match_any_tag(torrent, pause_tags):
                 continue
+            if not self.__is_completed_torrent(torrent, downloader_type):
+                continue
             target_ids.append(torrent_id)
 
         if not target_ids:
@@ -754,12 +756,12 @@ class SmartLimiter(_PluginBase):
 
             if state:
                 logger.info(
-                    f"SmartLimiter {downloader_name} 已{action} {len(target_ids)} 个匹配标签的种子"
+                    f"SmartLimiter {downloader_name} 已{action} {len(target_ids)} 个匹配标签的已完成种子"
                 )
             else:
-                logger.warning(f"SmartLimiter {downloader_name} {action}匹配标签种子失败")
+                logger.warning(f"SmartLimiter {downloader_name} {action}匹配标签的已完成种子失败")
         except Exception as e:
-            logger.error(f"SmartLimiter {downloader_name} {action}匹配标签种子异常：{str(e)}")
+            logger.error(f"SmartLimiter {downloader_name} {action}匹配标签的已完成种子异常：{str(e)}")
 
     def __get_all_torrents(self, service: Any) -> Optional[List[Any]]:
         try:
@@ -992,6 +994,45 @@ class SmartLimiter(_PluginBase):
         if isinstance(tags, (list, tuple, set)):
             return [str(tag).strip() for tag in tags if str(tag).strip()]
         return [tag.strip() for tag in str(tags).split(",") if tag.strip()]
+
+    def __is_completed_torrent(self, torrent: Any, downloader_type: str) -> bool:
+        progress = self.__safe_float(
+            self.__get_value(torrent, "progress", "percentDone", "percent_done", default=None),
+            None,
+        )
+        if progress is not None:
+            return progress >= 1
+
+        left_bytes = self.__safe_int(
+            self.__get_value(
+                torrent,
+                "amount_left",
+                "amountLeft",
+                "left_until_done",
+                "leftUntilDone",
+                default=None,
+            ),
+            None,
+        )
+        if left_bytes is not None:
+            return left_bytes <= 0
+
+        state = str(self.__get_value(torrent, "state", "status", default="") or "").lower()
+        normalized_state = (
+            state.replace(" ", "")
+            .replace("_", "")
+            .replace("-", "")
+        )
+
+        if downloader_type == "qbittorrent":
+            if "dl" in normalized_state or "download" in normalized_state:
+                return False
+            return normalized_state.endswith("up") or "upload" in normalized_state
+
+        if downloader_type == "transmission":
+            return normalized_state in {"seeding", "seedpending"}
+
+        return False
 
     def __limit_bytes(self) -> int:
         try:
