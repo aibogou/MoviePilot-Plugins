@@ -22,7 +22,7 @@ class SmartLimiter(_PluginBase):
     plugin_name = "下载器智能限速"
     plugin_desc = "按每日累计上传量统一限制已选下载器的上传速度，支持 qBittorrent 和 Transmission。"
     plugin_icon = "upload"
-    plugin_version = "1.0.0"
+    plugin_version = "1.1.0"
     plugin_author = "aibogo"
     plugin_config_prefix = "smartlimiter_"
     plugin_order = 50
@@ -40,6 +40,8 @@ class SmartLimiter(_PluginBase):
     _downloaders = []
     _upload_limit_gb = DEFAULT_LIMIT_GB
     _upload_speed_kbps = DEFAULT_SPEED_KBPS
+    _pause_torrents = False
+    _pause_torrent_tags = ""
 
     def init_plugin(self, config: dict = None):
 
@@ -61,12 +63,15 @@ class SmartLimiter(_PluginBase):
                     0,
                     self.__safe_int(config.get("upload_speed_kbps"), self.DEFAULT_SPEED_KBPS),
                 )
+                self._pause_torrents = bool(config.get("pause_torrents", False))
+                self._pause_torrent_tags = (config.get("pause_torrent_tags") or "").strip()
 
             self.__clear_data()
             logger.info(
                 f"SmartLimiter已加载，配置：enabled={self._enabled}, notify={self._notify}, "
                 f"onlyonce={self._onlyonce}, cron={self._cron}, downloaders={self._downloaders}, "
-                f"limit={self._upload_limit_gb}GB, speed={self._upload_speed_kbps}KB/s"
+                f"limit={self._upload_limit_gb}GB, speed={self._upload_speed_kbps}KB/s, "
+                f"pause_torrents={self._pause_torrents}, pause_torrent_tags={self._pause_torrent_tags}"
             )
         except Exception as e:
             logger.error(f"SmartLimiter初始化错误: {str(e)}", exc_info=True)
@@ -260,16 +265,51 @@ class SmartLimiter(_PluginBase):
                             },
                         ],
                     },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 3},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "pause_torrents",
+                                            "label": "暂停种子",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 9},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "pause_torrent_tags",
+                                            "label": "暂停种子标签",
+                                            "placeholder": "多个标签用英文逗号分隔，满足任意一个即暂停",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
                 ],
             }
         ], {
             "enabled": False,
             "notify": False,
             "onlyonce": False,
+            "clear_data": False,
             "cron": "0 */12 * * *",
             "downloaders": [],
             "upload_limit_gb": self.DEFAULT_LIMIT_GB,
             "upload_speed_kbps": self.DEFAULT_SPEED_KBPS,
+            "pause_torrents": False,
+            "pause_torrent_tags": "",
         }
 
     def get_page(self) -> List[dict]:
@@ -628,7 +668,11 @@ class SmartLimiter(_PluginBase):
         }
         return state, total_today
 
-    def __apply_limit_mode(self, services: Dict[str, Any], limited: bool) -> Tuple[int, List[str]]:
+    def __apply_limit_mode(
+        self,
+        services: Dict[str, Any],
+        limited: bool,
+    ) -> Tuple[int, List[str]]:
         success_count = 0
         failed_names: List[str] = []
         target_speed = self._upload_speed_kbps if limited else 0
@@ -636,6 +680,11 @@ class SmartLimiter(_PluginBase):
         for name, service in services.items():
             if self.__set_upload_limit(service, target_speed):
                 success_count += 1
+                self.__apply_torrent_pause_mode(
+                    downloader_name=name,
+                    service=service,
+                    limited=limited,
+                )
             else:
                 failed_names.append(name)
 
@@ -668,11 +717,71 @@ class SmartLimiter(_PluginBase):
             logger.error(f"SmartLimiter 设置下载器 {service.name} 上传限速失败：{str(e)}")
             return False
 
+    def __apply_torrent_pause_mode(
+        self,
+        downloader_name: str,
+        service: Any,
+        limited: bool,
+    ):
+        pause_tags = self.__pause_torrent_tag_list()
+        if not self._pause_torrents or not pause_tags:
+            return
+
+        torrents = self.__get_all_torrents(service)
+        if torrents is None:
+            return
+
+        downloader_type = self.__downloader_type(service)
+        target_ids: List[str] = []
+
+        for torrent in torrents:
+            torrent_id = self.__torrent_id(torrent, downloader_type)
+            if not torrent_id or torrent_id in target_ids:
+                continue
+            if not self.__torrent_match_any_tag(torrent, pause_tags):
+                continue
+            target_ids.append(torrent_id)
+
+        if not target_ids:
+            return
+
+        action = "暂停" if limited else "恢复"
+        try:
+            if limited:
+                state = service.instance.stop_torrents(ids=target_ids)
+            else:
+                state = service.instance.start_torrents(ids=target_ids)
+
+            if state:
+                logger.info(
+                    f"SmartLimiter {downloader_name} 已{action} {len(target_ids)} 个匹配标签的种子"
+                )
+            else:
+                logger.warning(f"SmartLimiter {downloader_name} {action}匹配标签种子失败")
+        except Exception as e:
+            logger.error(f"SmartLimiter {downloader_name} {action}匹配标签种子异常：{str(e)}")
+
+    def __get_all_torrents(self, service: Any) -> Optional[List[Any]]:
+        try:
+            if not self.__ensure_service(service):
+                return None
+            result = service.instance.get_torrents()
+            if isinstance(result, tuple):
+                torrents, error_flag = result
+            else:
+                torrents, error_flag = result, False
+            if error_flag:
+                logger.warning(f"SmartLimiter 获取下载器 {service.name} 种子列表失败")
+                return None
+            return torrents or []
+        except Exception as e:
+            logger.error(f"SmartLimiter 获取下载器 {service.name} 种子列表异常：{str(e)}")
+            return None
+
     def __get_downloader_total(self, service: Any) -> Optional[int]:
         try:
             if not self.__ensure_service(service):
                 return None
-
             downloader_type = self.__downloader_type(service)
 
             if downloader_type == "qbittorrent":
@@ -772,6 +881,8 @@ class SmartLimiter(_PluginBase):
                 "downloaders": self._downloaders,
                 "upload_limit_gb": self._upload_limit_gb,
                 "upload_speed_kbps": self._upload_speed_kbps,
+                "pause_torrents": self._pause_torrents,
+                "pause_torrent_tags": self._pause_torrent_tags,
             }
         )
         self.update_config(config)
@@ -794,6 +905,8 @@ class SmartLimiter(_PluginBase):
                 "downloaders": self._downloaders,
                 "upload_limit_gb": self._upload_limit_gb,
                 "upload_speed_kbps": self._upload_speed_kbps,
+                "pause_torrents": self._pause_torrents,
+                "pause_torrent_tags": self._pause_torrent_tags,
             }
         )
         self.update_config(config)
@@ -848,6 +961,38 @@ class SmartLimiter(_PluginBase):
             ret.append(name)
         return ret
 
+    def __pause_torrent_tag_list(self) -> List[str]:
+        return [
+            tag.strip()
+            for tag in str(self._pause_torrent_tags or "").split(",")
+            if tag.strip()
+        ]
+
+    def __torrent_id(self, torrent: Any, downloader_type: str) -> str:
+        if downloader_type == "transmission":
+            torrent_id = self.__get_value(
+                torrent, "hashString", "hash_string", "hash", "id", default=""
+            )
+        else:
+            torrent_id = self.__get_value(
+                torrent, "hash", "hashString", "hash_string", "id", default=""
+            )
+        return str(torrent_id or "").strip()
+
+    def __torrent_match_any_tag(self, torrent: Any, tags: List[str]) -> bool:
+        if not tags:
+            return False
+        torrent_tags = self.__torrent_tags(torrent)
+        return bool(set(tags).intersection(torrent_tags))
+
+    def __torrent_tags(self, torrent: Any) -> List[str]:
+        tags = self.__get_value(torrent, "tags", "labels", default=None)
+        if tags is None:
+            return []
+        if isinstance(tags, (list, tuple, set)):
+            return [str(tag).strip() for tag in tags if str(tag).strip()]
+        return [tag.strip() for tag in str(tags).split(",") if tag.strip()]
+
     def __limit_bytes(self) -> int:
         try:
             return max(0, int(float(self._upload_limit_gb) * 1024 ** 3))
@@ -871,3 +1016,24 @@ class SmartLimiter(_PluginBase):
             return float(value)
         except (TypeError, ValueError):
             return default
+
+    @staticmethod
+    def __get_value(data: Any, *names: str, default: Any = None) -> Any:
+        for name in names:
+            if data is None:
+                continue
+            if isinstance(data, dict) and name in data:
+                return data.get(name)
+            getter = getattr(data, "get", None)
+            if callable(getter):
+                try:
+                    value = getter(name)
+                    if value is not None:
+                        return value
+                except Exception:
+                    pass
+            if hasattr(data, name):
+                value = getattr(data, name)
+                if value is not None:
+                    return value
+        return default
